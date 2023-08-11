@@ -20,12 +20,16 @@
 
 package net.aboodyy.localtime;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import me.clip.placeholderapi.PlaceholderAPIPlugin;
 import org.bukkit.Bukkit;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.BufferedReader;
@@ -39,6 +43,9 @@ import java.util.*;
 public class DateManager implements Listener {
 
     private final Map<UUID, String> timezones;
+    private static final Gson GSON = new Gson();
+
+    private NamespacedKey ZONE_ID_KEY = new NamespacedKey(NamespacedKey.BUKKIT, "zone_id");
 
     DateManager() {
         timezones = new HashMap<>();
@@ -54,17 +61,22 @@ public class DateManager implements Listener {
     }
 
     public String getTimeZone(Player player) {
-        final String FAILED = "[LocalTime] Couldn't get " + player.getName() + "'s timezone. Will use default timezone.";
+        final String failed = "[LocalTime] Couldn't get " + player.getName() + "'s timezone. Will use default timezone.";
         String timezone = TimeZone.getDefault().getID();
 
         if (timezones.containsKey(player.getUniqueId()))
             return timezones.get(player.getUniqueId());
 
+
+        if (player.getPersistentDataContainer().has(ZONE_ID_KEY, PersistentDataType.STRING)) {
+            return player.getPersistentDataContainer().get(ZONE_ID_KEY, PersistentDataType.STRING);
+        }
+
         InetSocketAddress address = player.getAddress();
         timezones.put(player.getUniqueId(), timezone);
 
         if (address == null) {
-            Bukkit.getLogger().info(FAILED);
+            Bukkit.getLogger().info(failed);
             return timezone;
         }
 
@@ -74,17 +86,29 @@ public class DateManager implements Listener {
                 String timezone;
 
                 try {
-                    URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
+                    URL api = new URL("http://ipwho.is/" + address.getAddress().getHostAddress() + "?fields=timezone.id");
                     URLConnection connection = api.openConnection();
 
                     BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    timezone = bufferedReader.readLine();
+                    StringBuilder jsonString = new StringBuilder();
+                    String line;
+                    while ((line = bufferedReader.readLine()) != null) {
+                        jsonString.append(line);
+                    }
+                    bufferedReader.close();
+                    JsonObject jsonObject = GSON.fromJson(jsonString.toString(), JsonObject.class);
+                    timezone = jsonObject.getAsJsonObject("timezone").get("id").getAsString();
+                    player.getPersistentDataContainer().set(
+                            ZONE_ID_KEY,
+                            PersistentDataType.STRING,
+                            timezone
+                    );
                 } catch (Exception e) {
                     timezone = "undefined";
                 }
 
                 if (timezone.equalsIgnoreCase("undefined")) {
-                    Bukkit.getLogger().info(FAILED);
+                    Bukkit.getLogger().info(failed);
                     timezone = TimeZone.getDefault().getID();
                 }
 
